@@ -1,0 +1,61 @@
+<!doctype html>
+
+<script src="http://d3js.org/d3.v3.min.js"></script>
+<script src="http://dimplejs.org/dist/dimple.v1.min.js"></script>
+<script src="//ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+Logged in as {{id}}!
+<div id="chartContainer"></div>
+<div id="dataContainter"></div>
+<script>
+$(document).ready(function(){
+
+    checkProgress();
+    function checkProgress() {
+        $.get( "{{ url_for('get_progress', _external=True) }}", function( response ) {
+            $('#chartContainer').text(response)
+            if( response == '100')
+                graph();
+            else {
+                setTimeout(checkProgress, 3000)
+            }
+        });
+    }
+    function graph() {
+        var svg = dimple.newSvg("#chartContainer", 800, 600)
+        d3.tsv("{{ url_for('get_results', _external=True) }}", function (data)
+        {
+            $('#dataContainter').text(data)
+            var myChart = new dimple.chart(svg, data);
+            var x = myChart.addMeasureAxis("x", "Pearsons");
+            var y = myChart.addMeasureAxis("y", "Books");
+            var s = myChart.addSeries("Name", dimple.plot.bubble);
+            myChart.draw();
+            // Add labels
+            //s.shapes.each(function(d) {
+            //   // Get the shape as a d3 selection
+            //   var shape = d3.select(this),
+            //   // Get the height and width from the scales
+            //   height = myChart.y + myChart.height - y._scale(d.height);
+            //   width = x._scale(d.width);
+            //   // Add a text label for the value
+            //   svg.append("text")
+            //   // Position in the centre of the shape (vertical position is
+            //   // manually set due to cross-browser problems with baseline)
+            //   .attr("x", parseFloat(shape.attr("x")) + width / 2)
+            //   .attr("y", parseFloat(shape.attr("y")) - height / 2 + 3.5)
+            //   // Centre align
+            //   .style("text-anchor", "middle")
+            //   .style("font-size", "10px")
+            //   .style("font-family", "sans-serif")
+            //   // Make it a little transparent to tone down the black
+            //   .style("opacity", 0.6)
+            //   // Format the number
+            //   .text(d3.format(",.1f")(d.yValue / 1000) + "k");
+            // });
+        });
+    }
+});
+
+
+</script>
+
