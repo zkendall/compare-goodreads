@@ -16,23 +16,34 @@ logging.basicConfig(filename='webapp.log',
                     datefmt='%m/%d %I:%M:%S'
                     )
 
-import goodreads
+# Standard Library
 import thread
 import os
 from math import sqrt
+
+# 3rd Party Dependencies
+import goodreads
+from flaskext.kvsession import KVSessionExtension
+import redis
+from simplekv.memory.redisstore import RedisStore
 from flask import Flask, render_template, redirect, url_for, request, session, copy_current_request_context
+
+# The process running Flask needs write access to this directory:
+store = RedisStore(redis.StrictRedis())
+
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY')
 app.debug = bool(os.environ.get('DEBUG'))
+if not app.debug: app.config['SERVER_NAME'] = os.environ.get('SERVER_NAME')
 
-if not app.debug:
-    app.config['SERVER_NAME'] = os.environ.get('SERVER_NAME')
+# Replace the app's session handling
+KVSessionExtension(store, app)
 
 # Temp
-client = goodreads.Client(client_id=os.environ.get('CLIENT_ID'),
+goodreads_client = goodreads.Client(client_id=os.environ.get('CLIENT_ID'),
                           client_secret=os.environ.get('CLIENT_SECRET'))
 if app.debug:
-    client.authenticate(access_token=os.environ.get('ACCESS_TOKEN'),
+    goodreads_client.authenticate(access_token=os.environ.get('ACCESS_TOKEN'),
                     access_token_secret=os.environ.get('ACCESS_TOKEN_SECRET'))
 
 
@@ -58,10 +69,10 @@ def authenticate():
     ''' '''
 
     if app.debug:
-        id, name = client.get_auth_user()
+        id, name = goodreads_client.get_auth_user()
         return redirect('goodreads_callback?oauth_token=l9RKYJCINDu4BhESAsXGbw&authorize=0')
 
-    url = client.get_authentication_url()
+    url = goodreads_client.get_authentication_url()
     logging.info("Auth URL:" + str(url))
 
     # Reroute to goodreads for authentication
@@ -81,14 +92,14 @@ def goodreads_callback():
     
     # Did user approve?
     if authorize == '1':
-        client.finish_authentication()
+        goodreads_client.finish_authentication()
     elif not app.debug:
         return redirect('/')
 
     logging.info('Finished Authentication')
 
     # Safe user in sessionlogged in user id/name session
-    id, name = client.get_auth_user()
+    id, name = goodreads_client.get_auth_user()
     session['goodreads_name'] = name
     session['goodreads_id'] = id
 
@@ -106,14 +117,16 @@ def goodreads_callback():
 
 @app.route('/get_progress')
 def get_progress():
-    ''' Get the progress of the comparison opperation '''
-    session['comparison_progress'] += 25
+    ''' Get the progress of the comparison operation '''
+    #TEMP
+    #session['comparison_progress'] += 25
+    ##
     return str(session['comparison_progress'])
 
 @app.route('/get_results')
 def get_results():
     ''' '''
-    return open('results.tsv').read()
+    return session['comparison_results'] #open('results.tsv').read()
 
 #--------------------------
 #   Processing Methods
@@ -125,28 +138,30 @@ def compare():
 
     # RETURN FAKE DATA
     #session['comparison_results'] = open('results.tsv').read()
-    return
+    #return
     ########
 
     # END TEST
 
-    id, name = client.get_auth_user()
-    friends = client.get_friends(id)
-    
+    id, name = goodreads_client.get_auth_user()
+    friends = goodreads_client.get_friends(id)
+    logging.info('Retrieved Friends...')
     # Save friend count for progress bar
     total = len(friends)
 
     results = []
-    for i, friend in enumerate(friends):
-        session['comparison_progress'] = total / i
+    for i, friend in enumerate(friends, start=1):
+        progress = (i*1.0/total)*100
+        logging.info('Comparing ' + friend[0] + '('+str(progress)+'%)')
+        session['comparison_progress'] = progress
         f_id = friend[0] #id
 
-        comparison = client.compare_books(f_id)
+        comparison = goodreads_client.compare_books(f_id)
         correlation = compute_rating_correlation(comparison.reviews)
 
         logging.info(str(i) + ": " +(str(friend[1])) + ',' + str(correlation))
 
-        results.append( (friend[1], correlation, len(reviews)) )
+        results.append( (friend[1], correlation, len(comparison.reviews)) )
 
     session['comparison_results'] = make_tsv(results)
 
@@ -160,7 +175,7 @@ def make_tsv(data):
 def compute_rating_correlation(reviews):
     """
     Parse goodreads review comparison into list of (my rating, their rating)
-    and pass to peason()
+    and pass to pearson()
     Returns: distance
     """
     if len(reviews) < 1:
