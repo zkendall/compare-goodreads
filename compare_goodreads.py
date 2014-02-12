@@ -15,29 +15,26 @@ logging.basicConfig(filename='webapp.log',
                            '%(funcName)s():\t%(message)s',
                     datefmt='%m/%d %I:%M:%S'
                     )
+# Locals
+import database
 
 # Standard Library
 import thread
+import time
 import os
 from math import sqrt
 
 # 3rd Party Dependencies
 import goodreads
-from flaskext.kvsession import KVSessionExtension
-import redis
-from simplekv.memory.redisstore import RedisStore
-from flask import Flask, render_template, redirect, url_for, request, session, copy_current_request_context
+from flask import Flask, render_template, redirect, url_for, request, session
+from flask import g, copy_current_request_context
 
-# The process running Flask needs write access to this directory:
-store = RedisStore(redis.StrictRedis())
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY')
 app.debug = bool(os.environ.get('DEBUG'))
 if not app.debug: app.config['SERVER_NAME'] = os.environ.get('SERVER_NAME')
 
-# Replace the app's session handling
-KVSessionExtension(store, app)
 
 # Temp
 goodreads_client = goodreads.Client(client_id=os.environ.get('CLIENT_ID'),
@@ -98,52 +95,50 @@ def goodreads_callback():
 
     logging.info('Finished Authentication')
 
-    # Safe user in sessionlogged in user id/name session
+    # Save user in sessionlogged in user id/name session
     id, name = goodreads_client.get_auth_user()
     session['goodreads_name'] = name
     session['goodreads_id'] = id
 
     # Initialize progress
-    session['comparison_results'] = ''
     session['comparison_progress'] = 0
 
     # Start the comparison process in bg thread
     @copy_current_request_context
-    def do_work():
-        compare()
-    thread.start_new_thread(do_work, ())
+    def do_work(id):
+        compare(id)
+    thread.start_new_thread(do_work, (id,))
 
     return redirect('graph/'+id)
 
 @app.route('/get_progress')
 def get_progress():
     ''' Get the progress of the comparison operation '''
-    #TEMP
-    #session['comparison_progress'] += 25
-    ##
-    return str(session['comparison_progress'])
+    db = get_db()
+    progress = str(db.get_progress(session['goodreads_id']))
+    logging.info('Getting Progress: ' + progress)
+    return progress
 
 @app.route('/get_results')
 def get_results():
     ''' '''
-    return session['comparison_results'] #open('results.tsv').read()
+    db = get_db()
+    return db.get_result(session['goodreads_id']) #open('results.tsv').read()
 
 #--------------------------
 #   Processing Methods
 #--------------------------
 
-def compare():
+def compare(id):
     ''' Do actual calculations. Should be threaded... '''
     logging.info('Starting comparison...')
+    db = get_db()
 
-    # RETURN FAKE DATA
-    #session['comparison_results'] = open('results.tsv').read()
-    #return
-    ########
+    # No need to get results if you already have them
+    if db.has_result(id):
+        db.set_progress(id, 100)
+        return
 
-    # END TEST
-
-    id, name = goodreads_client.get_auth_user()
     friends = goodreads_client.get_friends(id)
     logging.info('Retrieved Friends...')
     # Save friend count for progress bar
@@ -151,9 +146,10 @@ def compare():
 
     results = []
     for i, friend in enumerate(friends, start=1):
-        progress = (i*1.0/total)*100
+        progress = i*100/total
+        db.set_progress(id, progress)
         logging.info('Comparing ' + friend[0] + '('+str(progress)+'%)')
-        session['comparison_progress'] = progress
+
         f_id = friend[0] #id
 
         comparison = goodreads_client.compare_books(f_id)
@@ -163,7 +159,7 @@ def compare():
 
         results.append( (friend[1], correlation, len(comparison.reviews)) )
 
-    session['comparison_results'] = make_tsv(results)
+    db.insert_result(id, make_tsv(results))
 
 def make_tsv(data):
     ''' Convert results to tab spaced values to load into graph. '''
@@ -216,7 +212,24 @@ def pearson(ratings):
         return (sum_xy - (sum_x * sum_y) / n) / denominator
 
 #--------------------------
-#
+#   Database
+#--------------------------
+
+def get_db():
+    datab = getattr(g, '_database', None)
+    if datab is None:
+        datab = g._database = database.Database()
+    return datab
+
+@app.teardown_appcontext
+def close_connection(exception):
+    db = getattr(g, '_database', None)
+    if db is not None:
+        db.close_con()
+
+
+#--------------------------
+#   Main
 #--------------------------
 
 if __name__ == '__main__':
