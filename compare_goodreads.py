@@ -23,18 +23,18 @@ import thread
 import time
 import os
 from math import sqrt
+from datetime import timedelta
 
 # 3rd Party Dependencies
 import goodreads
 from flask import Flask, render_template, redirect, url_for, request, session
 from flask import g, copy_current_request_context
 
-
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY')
 app.debug = bool(os.environ.get('DEBUG'))
 if not app.debug: app.config['SERVER_NAME'] = os.environ.get('SERVER_NAME')
-
+app.permanent_session_lifetime = timedelta(weeks=1)
 
 # Temp
 goodreads_client = goodreads.Client(client_id=os.environ.get('CLIENT_ID'),
@@ -49,17 +49,13 @@ if app.debug:
 @app.route('/')
 def index():
     ''' Starting point. '''
-    logging.info('')
-    return render_template('index.html')
+    # See if return visitor
+    id = session.get('goodreads_id', None)
+    if id is not None:
+        logging.info('User id, '+id+', recognized. Redirecting.')
+        return redirect(url_for('authenticate', id=id))
 
-@app.route('/graph/<id>')
-def graph(id):
-    '''
-    Where the magic happens.
-    ::id - user's goodread id
-    '''
-    logging.info('')
-    return render_template('graph.html', id=id)
+    return render_template('index.html')
 
 @app.route('/authenticate')
 def authenticate():
@@ -74,7 +70,6 @@ def authenticate():
 
     # Reroute to goodreads for authentication
     return redirect(url)
-
 
 @app.route('/goodreads_callback')
 def goodreads_callback():
@@ -103,6 +98,8 @@ def goodreads_callback():
     # Initialize progress
     session['comparison_progress'] = 0
 
+    session.modified = True
+
     # Start the comparison process in bg thread
     @copy_current_request_context
     def do_work(id):
@@ -110,6 +107,15 @@ def goodreads_callback():
     thread.start_new_thread(do_work, (id,))
 
     return redirect('graph/'+id)
+
+@app.route('/graph/<id>')
+def graph(id):
+    '''
+    Where the magic happens.
+    ::id - user's goodread id
+    '''
+    logging.info('')
+    return render_template('graph.html', id=id)
 
 @app.route('/get_progress')
 def get_progress():

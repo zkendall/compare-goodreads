@@ -15,7 +15,7 @@ class Database:
 
         self.cur.execute('''CREATE TABLE IF NOT EXISTS public.comparison (
                       u_id INTEGER NOT NULL,
-                      result JSON,
+                      result text,
                       CONSTRAINT comparison_u_id_key UNIQUE(u_id)
                     ) WITH (oids = false);''')
 
