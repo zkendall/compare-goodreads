@@ -1,10 +1,15 @@
 import psycopg2
-
+import os
 
 class Database:
 
-    def __init__(self, db_credentials="dbname=grdb user=postgres password=fredbb"):
-        self.con = psycopg2.connect(db_credentials)
+    def __init__(self):
+
+        db_name = os.environ.get('DB_NAME')
+        db_user = os.environ.get('DB_USER')
+        db_pass = os.environ.get('DB_PASS')
+
+        self.con = psycopg2.connect(database=db_name, user=db_user, password=db_pass)
         self.cur = self.con.cursor()
 
         # Initialize Tables

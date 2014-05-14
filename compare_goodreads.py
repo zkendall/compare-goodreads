@@ -136,7 +136,7 @@ def get_results():
 #--------------------------
 
 def compare(id):
-    ''' Do actual calculations. Should be threaded... '''
+    ''' Do actual calculations.'''
     logging.info('Starting comparison...')
     db = get_db()
 
@@ -222,10 +222,10 @@ def pearson(ratings):
 #--------------------------
 
 def get_db():
-    datab = getattr(g, '_database', None)
-    if datab is None:
-        datab = g._database = database.Database()
-    return datab
+    db = getattr(g, '_database', None)
+    if db is None:
+        db = g._dbase = database.Database()
+    return db
 
 @app.teardown_appcontext
 def close_connection(exception):
